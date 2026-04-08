@@ -118,21 +118,22 @@
               <span class="toggle-slider"></span>
             </label>
           </div>
-          <div class="dingtalk-toggle-row">
-            <div class="dingtalk-toggle-label">
-              <span class="dingtalk-toggle-title">开机自启动</span>
-              <span class="dingtalk-toggle-desc">电脑开机时自动启动日报助手</span>
-            </div>
-            <label class="toggle-switch">
-              <input type="checkbox" id="autoStartEnabled" onchange="toggleAutoStart()">
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
           <div class="dingtalk-actions">
             <button class="btn btn-secondary" id="btnDingtalkTest" onclick="testDingtalk()">发送测试</button>
             <button class="btn btn-accent" id="btnDingtalkPush" onclick="pushDingtalk()">立即推送</button>
           </div>
           <div class="dingtalk-status" id="dingtalkStatus"></div>
+        </div>
+
+        <div class="dingtalk-toggle-row" style="margin-top: 10px;">
+          <div class="dingtalk-toggle-label">
+            <span class="dingtalk-toggle-title">开机自启动</span>
+            <span class="dingtalk-toggle-desc">电脑开机时自动启动日报助手</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="autoStartEnabled" onchange="toggleAutoStart()">
+            <span class="toggle-slider"></span>
+          </label>
         </div>
 
         <hr style="margin: 20px 0; border: none; border-top: 1px solid #e1e5eb;">
