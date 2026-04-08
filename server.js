@@ -2,6 +2,7 @@ const express = require('express');
 const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const app = express();
 
@@ -1105,7 +1106,6 @@ app.listen(PORT, HOST, () => {
 // ============ 开机自启动 API ============
 
 const { exec } = require('child_process');
-const os = require('os');
 
 // API: 设置开机自启动
 app.post('/api/auto-start', (req, res) => {
@@ -1115,18 +1115,42 @@ app.post('/api/auto-start', (req, res) => {
     return res.status(400).json({ error: '仅支持 Windows 系统' });
   }
 
-  const appPath = process.execPath;
-  const taskName = 'DailyReportHelper_AutoStart';
-  const appTitle = '日报助手';
+  // 获取用户启动文件夹路径
+  const startupFolder = os.homedir() + '\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup';
+  const shortcutPath = path.join(startupFolder, '日报助手.lnk');
 
   if (enabled) {
-    // 创建开机自启动任务
-    const command = `schtasks /create /tn "${taskName}" /tr "\\"${appPath}\\" --hidden" /sc onlogon /rl limited /f`;
+    // 使用 PowerShell 创建快捷方式到启动文件夹
+    const startupPath = shortcutPath.replace(/\\/g, '\\\\');
+    const nodeExecPath = process.execPath.replace(/\\/g, '\\\\');
+    const serverFilePath = path.join(__dirname, 'server.js').replace(/\\/g, '\\\\');
+    const workDir = __dirname.replace(/\\/g, '\\\\');
 
-    exec(command, (error, stdout, stderr) => {
+    // 创建 PowerShell 脚本文件
+    const psScript = `
+$ErrorActionPreference = 'Stop'
+$WshShell = New-Object -ComObject WScript.Shell
+$shortcut = $WshShell.CreateShortcut("${startupPath}")
+$shortcut.TargetPath = "${nodeExecPath}"
+$shortcut.Arguments = '\"${serverFilePath}\"'
+$shortcut.WorkingDirectory = "${workDir}"
+$shortcut.Description = "日报助手"
+$shortcut.WindowStyle = 1
+$shortcut.Save()
+Write-Output "OK"
+`.trim();
+
+    // 写入临时脚本文件并执行
+    const psFile = path.join(os.tmpdir(), 'auto_start.ps1');
+    fs.writeFileSync(psFile, psScript, 'utf8');
+
+    exec(`powershell -ExecutionPolicy Bypass -File "${psFile}"`, (error, stdout, stderr) => {
+      // 删除临时脚本
+      try { fs.unlinkSync(psFile); } catch (e) {}
+
       if (error) {
-        console.error('创建自启动任务失败:', error);
-        return res.status(500).json({ error: '创建自启动任务失败' });
+        console.error('创建启动快捷方式失败:', error);
+        return res.status(500).json({ error: '创建启动快捷方式失败: ' + error.message });
       }
 
       // 保存配置
@@ -1137,22 +1161,19 @@ app.post('/api/auto-start', (req, res) => {
       res.json({ success: true, message: '已开启开机自启动' });
     });
   } else {
-    // 删除自启动任务
-    const command = `schtasks /delete /tn "${taskName}" /f`;
-
-    exec(command, (error, stdout, stderr) => {
-      // 即使删除失败也尝试保存配置
-      const config = getConfig();
-      config.autoStart = false;
-      saveConfig(config);
-
-      if (error) {
-        // 任务可能不存在，这是正常的
-        console.log('删除自启动任务（可能不存在）:', error.message);
+    // 删除启动文件夹中的快捷方式
+    try {
+      if (fs.existsSync(shortcutPath)) {
+        fs.unlinkSync(shortcutPath);
       }
+    } catch (e) {}
 
-      res.json({ success: true, message: '已关闭开机自启动' });
-    });
+    // 保存配置
+    const config = getConfig();
+    config.autoStart = false;
+    saveConfig(config);
+
+    res.json({ success: true, message: '已关闭开机自启动' });
   }
 });
 
