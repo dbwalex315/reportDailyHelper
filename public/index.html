@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>日报助手 - Daily Report Helper</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 背景粒子动画 -->
+  <canvas id="particles"></canvas>
+
+  <div class="container">
+    <!-- 头部 -->
+    <header class="header">
+      <h1>汇报助手</h1>
+      <div class="date-display" id="currentDate"></div>
+    </header>
+
+    <!-- Tab 导航 -->
+    <div class="tab-nav">
+      <button class="tab-btn active" data-tab="daily" onclick="switchTab('daily')">
+        <span class="tab-icon">📅</span>
+        <span class="tab-text">日报</span>
+      </button>
+      <button class="tab-btn" data-tab="weekly" onclick="switchTab('weekly')">
+        <span class="tab-icon">📆</span>
+        <span class="tab-text">周报</span>
+      </button>
+      <button class="tab-btn" data-tab="monthly" onclick="switchTab('monthly')">
+        <span class="tab-icon">📇</span>
+        <span class="tab-text">月报</span>
+      </button>
+    </div>
+
+    <!-- 工具栏 -->
+    <div class="toolbar" id="toolbar">
+      <button class="btn btn-secondary" id="btnConfig" onclick="toggleConfig()">配置</button>
+      <button class="btn btn-primary" id="btnFetch" onclick="fetchCommits()">拉取Git</button>
+      <button class="btn btn-primary" id="btnGenerate" onclick="generateReport()">生成日报</button>
+      <button class="btn btn-accent" id="btnCopy" onclick="copyReport()">一键复制</button>
+      <button class="btn btn-secondary" id="btnHistory" onclick="showHistory()">历史</button>
+    </div>
+
+    <!-- 配置面板 -->
+    <div class="config-panel" id="configPanel">
+      <div class="config-header">
+        <h3>GitLab + AI 配置</h3>
+        <button class="btn-close" onclick="toggleConfig()">&times;</button>
+      </div>
+      <div class="config-form">
+        <div class="form-group">
+          <label for="gitlabUrl">GitLab 地址</label>
+          <input type="text" id="gitlabUrl" placeholder="https://gitlab.com 或私有部署地址">
+        </div>
+        <div class="form-group">
+          <label for="token">访问令牌 (Personal Access Token)</label>
+          <input type="password" id="token" placeholder="glpat-xxxx">
+          <small>需要 read_api 权限</small>
+        </div>
+        <div class="form-group">
+          <label for="username">用户名 <small>（可留空，自动获取本人提交）</small></label>
+          <input type="text" id="username" placeholder="你的 GitLab 用户名（可选）">
+        </div>
+        <div class="form-group">
+          <label for="jobTitle">职位 <small>（用于 AI 生成工作内容参考）</small></label>
+          <input type="text" id="jobTitle" placeholder="如：Java后端开发、Web前端开发">
+        </div>
+
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e1e5eb;">
+
+        <div class="form-group">
+          <label for="aiProvider">AI 提供商</label>
+          <select id="aiProvider" onchange="selectAiProvider(this.value)">
+            <option value="">自定义</option>
+            <option value="openai">OpenAI (GPT)</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="minimax">MiniMax (CodePlan)</option>
+            <option value="zhipu">智谱 AI (GLM)</option>
+            <option value="volcengine">字节火山</option>
+            <option value="dashscope">阿里百炼</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="aiApiUrl">AI API 地址</label>
+          <input type="text" id="aiApiUrl" placeholder="https://api.openai.com/v1">
+        </div>
+        <div class="form-group">
+          <label for="aiApiKey">AI API Key</label>
+          <input type="password" id="aiApiKey" placeholder="sk-xxxx">
+        </div>
+        <div class="form-group">
+          <label for="aiModel">AI 模型</label>
+          <input type="text" id="aiModel" placeholder="gpt-3.5-turbo">
+        </div>
+
+        <button class="btn btn-primary btn-block" onclick="saveConfig()">保存配置</button>
+      </div>
+    </div>
+
+    <!-- 状态提示 -->
+    <div class="status-bar" id="statusBar">
+      <span id="statusText"></span>
+    </div>
+
+    <!-- 字数提示 -->
+    <div class="word-count-hint" id="wordCountHint" style="display:none;">
+      <span>字数过少，建议进行 AI 重写</span>
+    </div>
+
+    <!-- 页面容器 -->
+    <div class="page-container">
+      <!-- 日报页面 -->
+      <div class="page-panel active" id="pageDaily">
+        <div class="editor">
+          <div class="editor-section">
+            <label for="todayWork">
+              <span class="section-title">今日完成工作</span>
+              <span class="section-hint" id="commitHint"></span>
+            </label>
+            <textarea id="todayWork" rows="8" placeholder="从 GitLab 拉取或手动输入今日完成的工作..." oninput="checkWordCount()"></textarea>
+          </div>
+
+          <div class="editor-section">
+            <label for="problems">
+              <span class="section-title">遇到问题及解决方案</span>
+            </label>
+            <textarea id="problems" rows="4" placeholder="描述工作中遇到的问题及解决方法..."></textarea>
+          </div>
+
+          <div class="editor-section">
+            <label for="tomorrowPlan">
+              <span class="section-title">明日工作计划</span>
+            </label>
+            <textarea id="tomorrowPlan" rows="4" placeholder="计划明天完成的工作..."></textarea>
+          </div>
+
+          <div class="editor-section">
+            <label for="notes">
+              <span class="section-title">备注</span>
+            </label>
+            <textarea id="notes" rows="3" placeholder="其他需要说明的事项..."></textarea>
+          </div>
+        </div>
+
+        <!-- AI 操作按钮 - 日报 -->
+        <div class="ai-section" id="dailyAiSection">
+          <div class="ai-buttons">
+            <button class="btn btn-ai" id="btnAiGenerate" onclick="aiGenerate()" disabled>AI 生成</button>
+            <button class="btn btn-ai" id="btnAiRewrite" onclick="aiRewrite()" disabled>AI 重写</button>
+          </div>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="actions" id="dailyActions">
+          <button class="btn btn-primary btn-block" onclick="saveHistory()">保存到历史记录</button>
+        </div>
+      </div>
+
+      <!-- 周报页面 -->
+      <div class="page-panel" id="pageWeekly">
+        <div class="period-header">
+          <div class="period-info">
+            <span class="period-label">时间范围：</span>
+            <span class="period-value" id="weeklyDateRange">加载中...</span>
+          </div>
+          <button class="btn btn-accent" id="btnWeeklyReport" onclick="aiWeeklyReport()" disabled>
+            <span class="btn-icon">✨</span> AI 生成周报
+          </button>
+        </div>
+        <div class="editor">
+          <div class="editor-section">
+            <label>
+              <span class="section-title">本周完成工作</span>
+              <span class="section-hint" id="weeklyCommitHint"></span>
+            </label>
+            <textarea id="weeklyWork" rows="12" placeholder="从 GitLab 拉取或手动输入本周完成的工作..."></textarea>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-accent btn-block" onclick="copyWeeklyReport()">一键复制周报</button>
+        </div>
+      </div>
+
+      <!-- 月报页面 -->
+      <div class="page-panel" id="pageMonthly">
+        <div class="period-header">
+          <div class="period-info">
+            <span class="period-label">时间范围：</span>
+            <span class="period-value" id="monthlyDateRange">加载中...</span>
+          </div>
+          <button class="btn btn-accent" id="btnMonthlyReport" onclick="aiMonthlyReport()" disabled>
+            <span class="btn-icon">✨</span> AI 生成月报
+          </button>
+        </div>
+        <div class="editor">
+          <div class="editor-section">
+            <label>
+              <span class="section-title">本月完成工作</span>
+              <span class="section-hint" id="monthlyCommitHint"></span>
+            </label>
+            <textarea id="monthlyWork" rows="12" placeholder="从 GitLab 拉取或手动输入本月完成的工作..."></textarea>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-accent btn-block" onclick="copyMonthlyReport()">一键复制月报</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 预览区域 -->
+    <div class="preview-panel" id="previewPanel">
+      <div class="preview-header">
+        <h3>日报预览</h3>
+        <button class="btn-close" onclick="hidePreview()">&times;</button>
+      </div>
+      <pre class="preview-content" id="previewContent"></pre>
+    </div>
+
+    <!-- 历史记录弹窗 -->
+    <div class="modal" id="historyModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>历史记录</h3>
+          <button class="btn-close" onclick="hideHistory()">&times;</button>
+        </div>
+        <div class="modal-body" id="historyList"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="particles.js"></script>
+</body>
+</html>
