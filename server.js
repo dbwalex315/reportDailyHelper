@@ -932,6 +932,7 @@ app.get('/api/dingtalk/config', (req, res) => {
     pushDays: dingtalk.pushDays || [1, 2, 3, 4, 5],
     autoGenerate: dingtalk.autoGenerate !== false,
     lastPushAt: dingtalk.lastPushAt || null,
+    autoStart: config.autoStart || false,
     isConfigured: !!(dingtalk.webhookUrl)
   });
 });
@@ -1099,4 +1100,64 @@ app.listen(PORT, HOST, () => {
   if (config.dingtalk && config.dingtalk.enabled) {
     startScheduler(config);
   }
+});
+
+// ============ 开机自启动 API ============
+
+const { exec } = require('child_process');
+const os = require('os');
+
+// API: 设置开机自启动
+app.post('/api/auto-start', (req, res) => {
+  const { enabled } = req.body;
+
+  if (process.platform !== 'win32') {
+    return res.status(400).json({ error: '仅支持 Windows 系统' });
+  }
+
+  const appPath = process.execPath;
+  const taskName = 'DailyReportHelper_AutoStart';
+  const appTitle = '日报助手';
+
+  if (enabled) {
+    // 创建开机自启动任务
+    const command = `schtasks /create /tn "${taskName}" /tr "\\"${appPath}\\" --hidden" /sc onlogon /rl limited /f`;
+
+    exec(command, (error, stdout, stderr) => {
+      if (error) {
+        console.error('创建自启动任务失败:', error);
+        return res.status(500).json({ error: '创建自启动任务失败' });
+      }
+
+      // 保存配置
+      const config = getConfig();
+      config.autoStart = true;
+      saveConfig(config);
+
+      res.json({ success: true, message: '已开启开机自启动' });
+    });
+  } else {
+    // 删除自启动任务
+    const command = `schtasks /delete /tn "${taskName}" /f`;
+
+    exec(command, (error, stdout, stderr) => {
+      // 即使删除失败也尝试保存配置
+      const config = getConfig();
+      config.autoStart = false;
+      saveConfig(config);
+
+      if (error) {
+        // 任务可能不存在，这是正常的
+        console.log('删除自启动任务（可能不存在）:', error.message);
+      }
+
+      res.json({ success: true, message: '已关闭开机自启动' });
+    });
+  }
+});
+
+// API: 获取自启动状态
+app.get('/api/auto-start', (req, res) => {
+  const config = getConfig();
+  res.json({ autoStart: config.autoStart || false });
 });

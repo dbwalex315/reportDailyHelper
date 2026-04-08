@@ -802,6 +802,7 @@ const dingtalkElements = {
   secret: document.getElementById('dingtalkSecret'),
   pushTime: document.getElementById('dingtalkPushTime'),
   autoGenerate: document.getElementById('dingtalkAutoGenerate'),
+  autoStart: document.getElementById('autoStartEnabled'),
   configSection: document.getElementById('dingtalkConfigSection'),
   status: document.getElementById('dingtalkStatus'),
   testBtn: document.getElementById('btnDingtalkTest'),
@@ -822,6 +823,35 @@ function toggleDay(day) {
   }
 }
 
+// 切换开机自启动
+async function toggleAutoStart() {
+  const enabled = dingtalkElements.autoStart.checked;
+
+  try {
+    const res = await fetch('/api/auto-start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || '设置失败');
+    }
+
+    if (enabled) {
+      showDingTalkStatus('已开启开机自启动', 'success');
+    } else {
+      showDingTalkStatus('已关闭开机自启动', 'success');
+    }
+  } catch (err) {
+    showDingTalkStatus(err.message, 'error');
+    // 恢复复选框状态
+    dingtalkElements.autoStart.checked = !enabled;
+  }
+}
+
 // 加载钉钉配置
 async function loadDingTalkConfig() {
   try {
@@ -833,6 +863,7 @@ async function loadDingTalkConfig() {
     dingtalkElements.secret.value = data.secret || '';
     dingtalkElements.pushTime.value = data.pushTime || '18:00';
     dingtalkElements.autoGenerate.checked = data.autoGenerate !== false;
+    dingtalkElements.autoStart.checked = data.autoStart || false;
 
     // 设置工作日按钮状态
     const pushDays = data.pushDays || [1, 2, 3, 4, 5];
