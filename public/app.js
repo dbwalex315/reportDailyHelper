@@ -93,6 +93,7 @@ function switchTab(tab) {
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
   loadConfig();
+  loadDingTalkConfig();
   loadTodayRecord();
   initDateRanges();
 });
@@ -244,6 +245,11 @@ async function saveConfig() {
       });
       document.getElementById('btnWeeklyReport').disabled = false;
       document.getElementById('btnMonthlyReport').disabled = false;
+    }
+
+    // 同时保存钉钉配置
+    if (dingtalkElements.enabled.checked) {
+      await saveDingTalkConfig();
     }
   } catch (err) {
     showStatus(err.message, 'error');
@@ -786,3 +792,209 @@ document.addEventListener('keydown', (e) => {
     if (elements.configPanel.classList.contains('show')) toggleConfig();
   }
 });
+
+// ============ 钉钉配置 ============
+
+// DOM 元素 - 钉钉配置
+const dingtalkElements = {
+  enabled: document.getElementById('dingtalkEnabled'),
+  webhook: document.getElementById('dingtalkWebhook'),
+  secret: document.getElementById('dingtalkSecret'),
+  pushTime: document.getElementById('dingtalkPushTime'),
+  autoGenerate: document.getElementById('dingtalkAutoGenerate'),
+  configSection: document.getElementById('dingtalkConfigSection'),
+  status: document.getElementById('dingtalkStatus'),
+  testBtn: document.getElementById('btnDingtalkTest'),
+  pushBtn: document.getElementById('btnDingtalkPush')
+};
+
+// 更新钉钉配置区块显示状态
+function updateDingTalkEnabled() {
+  const isEnabled = dingtalkElements.enabled.checked;
+  dingtalkElements.configSection.style.display = isEnabled ? 'block' : 'none';
+}
+
+// 切换工作日按钮
+function toggleDay(day) {
+  const btn = document.querySelector(`.day-btn[data-day="${day}"]`);
+  if (btn) {
+    btn.classList.toggle('active');
+  }
+}
+
+// 加载钉钉配置
+async function loadDingTalkConfig() {
+  try {
+    const res = await fetch('/api/dingtalk/config');
+    const data = await res.json();
+
+    dingtalkElements.enabled.checked = data.enabled || false;
+    dingtalkElements.webhook.value = data.webhookUrl || '';
+    dingtalkElements.secret.value = data.secret || '';
+    dingtalkElements.pushTime.value = data.pushTime || '18:00';
+    dingtalkElements.autoGenerate.checked = data.autoGenerate !== false;
+
+    // 设置工作日按钮状态
+    const pushDays = data.pushDays || [1, 2, 3, 4, 5];
+    document.querySelectorAll('.day-btn').forEach(btn => {
+      const day = parseInt(btn.dataset.day);
+      btn.classList.toggle('active', pushDays.includes(day));
+    });
+
+    // 更新显示状态
+    updateDingTalkEnabled();
+
+    // 如果已配置，显示最后推送时间
+    if (data.lastPushAt) {
+      const lastDate = new Date(data.lastPushAt).toLocaleString('zh-CN');
+      showDingTalkStatus(`最后推送: ${lastDate}`, 'info');
+    }
+  } catch (err) {
+    console.error('加载钉钉配置失败:', err);
+  }
+}
+
+// 获取选中的工作日
+function getSelectedPushDays() {
+  const days = [];
+  document.querySelectorAll('.day-btn.active').forEach(btn => {
+    days.push(parseInt(btn.dataset.day));
+  });
+  return days;
+}
+
+// 显示钉钉状态
+function showDingTalkStatus(message, type = 'info') {
+  dingtalkElements.status.textContent = message;
+  dingtalkElements.status.className = 'dingtalk-status show ' + type;
+}
+
+// 保存钉钉配置
+async function saveDingTalkConfig() {
+  const webhookUrl = dingtalkElements.webhook.value.trim();
+  const secret = dingtalkElements.secret.value.trim();
+  const pushTime = dingtalkElements.pushTime.value || '18:00';
+  const pushDays = getSelectedPushDays();
+  const autoGenerate = dingtalkElements.autoGenerate.checked;
+  const enabled = dingtalkElements.enabled.checked;
+
+  // 如果启用但没有填写 Webhook，提示错误
+  if (enabled && !webhookUrl) {
+    showDingTalkStatus('请填写 Webhook URL', 'error');
+    return;
+  }
+
+  // 如果启用了工作日选择但没有选择任何一天，默认选工作日
+  if (pushDays.length === 0) {
+    showDingTalkStatus('请至少选择一个工作日，或取消启用钉钉推送', 'error');
+    return;
+  }
+
+  try {
+    dingtalkElements.testBtn.disabled = true;
+    dingtalkElements.pushBtn.disabled = true;
+
+    const res = await fetch('/api/dingtalk/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled,
+        webhookUrl,
+        secret,
+        pushTime,
+        pushDays,
+        autoGenerate
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error);
+    }
+
+    showDingTalkStatus('钉钉配置已保存', 'success');
+    setTimeout(() => {
+      dingtalkElements.status.classList.remove('show');
+    }, 2000);
+  } catch (err) {
+    showDingTalkStatus(err.message, 'error');
+  } finally {
+    dingtalkElements.testBtn.disabled = false;
+    dingtalkElements.pushBtn.disabled = false;
+  }
+}
+
+// 发送测试消息
+async function testDingtalk() {
+  const webhookUrl = dingtalkElements.webhook.value.trim();
+  const secret = dingtalkElements.secret.value.trim();
+
+  if (!webhookUrl) {
+    showDingTalkStatus('请先填写 Webhook URL', 'error');
+    return;
+  }
+
+  // 如果没有保存当前配置，先保存
+  await saveDingTalkConfig();
+
+  try {
+    dingtalkElements.testBtn.disabled = true;
+    dingtalkElements.testBtn.textContent = '发送中...';
+
+    const res = await fetch('/api/dingtalk/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ webhookUrl, secret })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || '发送失败');
+    }
+
+    showDingTalkStatus('测试消息发送成功！', 'success');
+  } catch (err) {
+    showDingTalkStatus(err.message, 'error');
+  } finally {
+    dingtalkElements.testBtn.disabled = false;
+    dingtalkElements.testBtn.textContent = '发送测试';
+  }
+}
+
+// 立即推送
+async function pushDingtalk() {
+  // 如果没有保存当前配置，先保存
+  await saveDingTalkConfig();
+
+  try {
+    dingtalkElements.pushBtn.disabled = true;
+    dingtalkElements.pushBtn.textContent = '推送中...';
+    showDingTalkStatus('正在生成日报并推送...', 'info');
+
+    const res = await fetch('/api/dingtalk/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || '推送失败');
+    }
+
+    showDingTalkStatus(`推送成功！基于 ${data.commits} 条提交记录`, 'success');
+
+    // 如果有报告内容，显示在预览中
+    if (data.report) {
+      elements.previewContent.textContent = data.report;
+      elements.previewPanel.classList.add('show');
+    }
+  } catch (err) {
+    showDingTalkStatus(err.message, 'error');
+  } finally {
+    dingtalkElements.pushBtn.disabled = false;
+    dingtalkElements.pushBtn.textContent = '立即推送';
+  }
+}
+

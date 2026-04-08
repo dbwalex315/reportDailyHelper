@@ -15,5 +15,11 @@
       "src": "/(.*)",
       "dest": "/public/$1"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/dingtalk/cron",
+      "schedule": "0 18 * * 1-5"
+    }
   ]
 }

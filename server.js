@@ -4,6 +4,11 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
+
+// 钉钉服务
+const { createDingTalkService } = require('./services/dingtalk');
+const { createReportGenerator } = require('./services/reportGenerator');
+const { startScheduler, stopScheduler, triggerPush } = require('./services/scheduler');
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -25,7 +30,16 @@ if (!fs.existsSync(CONFIG_FILE)) {
     username: '',
     aiApiUrl: '',
     aiApiKey: '',
-    aiModel: 'gpt-3.5-turbo'
+    aiModel: 'gpt-3.5-turbo',
+    dingtalk: {
+      enabled: false,
+      webhookUrl: '',
+      secret: '',
+      pushTime: '18:00',
+      pushDays: [1, 2, 3, 4, 5],
+      autoGenerate: true,
+      lastPushAt: null
+    }
   }, null, 2));
 }
 
@@ -43,7 +57,24 @@ function getConfig() {
   try {
     return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
   } catch (err) {
-    return { gitlabUrl: '', token: '', username: '', jobTitle: '', aiApiUrl: '', aiApiKey: '', aiModel: 'gpt-3.5-turbo' };
+    return {
+      gitlabUrl: '',
+      token: '',
+      username: '',
+      jobTitle: '',
+      aiApiUrl: '',
+      aiApiKey: '',
+      aiModel: 'gpt-3.5-turbo',
+      dingtalk: {
+        enabled: false,
+        webhookUrl: '',
+        secret: '',
+        pushTime: '18:00',
+        pushDays: [1, 2, 3, 4, 5],
+        autoGenerate: true,
+        lastPushAt: null
+      }
+    };
   }
 }
 
@@ -878,8 +909,194 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// ============ 钉钉 API ============
+
+// API: 获取钉钉配置
+app.get('/api/dingtalk/config', (req, res) => {
+  const config = getConfig();
+  const dingtalk = config.dingtalk || {
+    enabled: false,
+    webhookUrl: '',
+    secret: '',
+    pushTime: '18:00',
+    pushDays: [1, 2, 3, 4, 5],
+    autoGenerate: true,
+    lastPushAt: null
+  };
+
+  res.json({
+    enabled: dingtalk.enabled,
+    webhookUrl: dingtalk.webhookUrl || '',
+    secret: dingtalk.secret || '',
+    pushTime: dingtalk.pushTime || '18:00',
+    pushDays: dingtalk.pushDays || [1, 2, 3, 4, 5],
+    autoGenerate: dingtalk.autoGenerate !== false,
+    lastPushAt: dingtalk.lastPushAt || null,
+    isConfigured: !!(dingtalk.webhookUrl)
+  });
+});
+
+// API: 保存钉钉配置
+app.post('/api/dingtalk/config', (req, res) => {
+  const { enabled, webhookUrl, secret, pushTime, pushDays, autoGenerate } = req.body;
+  const config = getConfig();
+
+  // 初始化 dingtalk 配置
+  if (!config.dingtalk) {
+    config.dingtalk = {};
+  }
+
+  if (enabled !== undefined) config.dingtalk.enabled = !!enabled;
+  if (webhookUrl !== undefined) config.dingtalk.webhookUrl = webhookUrl || '';
+  if (secret !== undefined) config.dingtalk.secret = secret || '';
+  if (pushTime !== undefined) config.dingtalk.pushTime = pushTime || '18:00';
+  if (pushDays !== undefined) config.dingtalk.pushDays = pushDays || [1, 2, 3, 4, 5];
+  if (autoGenerate !== undefined) config.dingtalk.autoGenerate = !!autoGenerate;
+
+  saveConfig(config);
+
+  // 更新定时任务
+  if (config.dingtalk.enabled) {
+    startScheduler(config);
+  } else {
+    stopScheduler();
+  }
+
+  res.json({ success: true });
+});
+
+// API: 发送测试消息
+app.post('/api/dingtalk/test', async (req, res) => {
+  const config = getConfig();
+  const { webhookUrl, secret } = req.body;
+
+  if (!webhookUrl) {
+    return res.status(400).json({ error: '请提供 Webhook URL' });
+  }
+
+  const dingtalkService = createDingTalkService({
+    webhookUrl,
+    secret: secret || ''
+  });
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const result = await dingtalkService.sendMarkdown(
+    '日报助手 - 测试消息',
+    `这是一条测试消息\n\n发送时间：${todayStr}\n\n如果收到此消息，说明配置正确！`
+  );
+
+  if (result.success) {
+    res.json({ success: true, message: '测试消息发送成功' });
+  } else {
+    res.status(500).json({ error: result.error || '发送失败' });
+  }
+});
+
+// API: 手动触发推送
+app.post('/api/dingtalk/push', async (req, res) => {
+  const config = getConfig();
+  const dingtalk = config.dingtalk || {};
+
+  if (!dingtalk.webhookUrl) {
+    return res.status(400).json({ error: '请先配置钉钉 Webhook' });
+  }
+
+  try {
+    const generator = createReportGenerator(config);
+    const result = await generator.generate(1);
+
+    const dingtalkService = createDingTalkService({
+      webhookUrl: dingtalk.webhookUrl,
+      secret: dingtalk.secret || ''
+    });
+
+    const sendResult = await dingtalkService.sendMarkdown(
+      `${result.user} - 工作日报`,
+      result.report
+    );
+
+    if (sendResult.success) {
+      // 更新最后推送时间
+      config.dingtalk.lastPushAt = new Date().toISOString();
+      saveConfig(config);
+
+      res.json({
+        success: true,
+        message: '推送成功',
+        report: result.report,
+        commits: result.commits
+      });
+    } else {
+      res.status(500).json({ error: sendResult.error || '推送失败' });
+    }
+  } catch (err) {
+    console.error('手动推送失败:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Cron 定时触发（Vercel Cron）
+app.post('/api/dingtalk/cron', async (req, res) => {
+  const config = getConfig();
+  const dingtalk = config.dingtalk || {};
+
+  if (!dingtalk.enabled) {
+    return res.json({ message: '钉钉推送未启用' });
+  }
+
+  if (!dingtalk.webhookUrl) {
+    return res.status(400).json({ error: '钉钉 Webhook 未配置' });
+  }
+
+  // 检查是否是工作日
+  const today = new Date();
+  const dayOfWeek = today.getDay();
+  const pushDays = dingtalk.pushDays || [1, 2, 3, 4, 5];
+
+  if (!pushDays.includes(dayOfWeek)) {
+    return res.json({ message: '今日不是推送日' });
+  }
+
+  try {
+    const generator = createReportGenerator(config);
+    const result = await generator.generate(1);
+
+    const dingtalkService = createDingTalkService({
+      webhookUrl: dingtalk.webhookUrl,
+      secret: dingtalk.secret || ''
+    });
+
+    const sendResult = await dingtalkService.sendMarkdown(
+      `${result.user} - 工作日报`,
+      result.report
+    );
+
+    if (sendResult.success) {
+      config.dingtalk.lastPushAt = new Date().toISOString();
+      saveConfig(config);
+
+      res.json({
+        success: true,
+        message: '定时推送成功',
+        commits: result.commits
+      });
+    } else {
+      res.status(500).json({ error: sendResult.error || '推送失败' });
+    }
+  } catch (err) {
+    console.error('Cron 推送失败:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 启动服务器
 app.listen(PORT, HOST, () => {
   console.log(`日报助手已启动: http://localhost:${PORT}`);
   console.log(`访问地址: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+
+  // 初始化钉钉定时任务
+  const config = getConfig();
+  if (config.dingtalk && config.dingtalk.enabled) {
+    startScheduler(config);
+  }
 });

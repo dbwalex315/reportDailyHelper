@@ -69,6 +69,64 @@
 
         <hr style="margin: 20px 0; border: none; border-top: 1px solid #e1e5eb;">
 
+        <h4 style="margin-bottom: 15px;">钉钉推送配置</h4>
+
+        <div class="dingtalk-toggle-row">
+          <div class="dingtalk-toggle-label">
+            <span class="dingtalk-toggle-title">启用定时推送</span>
+            <span class="dingtalk-toggle-desc">自动生成日报并推送到钉钉群</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="dingtalkEnabled" onchange="updateDingTalkEnabled()">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <div id="dingtalkConfigSection" style="display: none;">
+          <div class="form-group">
+            <label for="dingtalkWebhook">钉钉 Webhook URL</label>
+            <input type="text" id="dingtalkWebhook" placeholder="https://oapi.dingtalk.com/robot/send?access_token=xxx">
+            <small>在钉钉群设置中添加机器人，获取 Webhook 地址</small>
+          </div>
+          <div class="form-group">
+            <label for="dingtalkSecret">签名密钥 <small>（安全设置中设置，可选）</small></label>
+            <input type="password" id="dingtalkSecret" placeholder="签名密钥（SEC开头）">
+          </div>
+          <div class="form-group">
+            <label for="dingtalkPushTime">推送时间</label>
+            <input type="time" id="dingtalkPushTime" value="18:00">
+          </div>
+          <div class="form-group">
+            <label>推送工作日</label>
+            <div class="day-selector">
+              <button type="button" class="day-btn" data-day="1" onclick="toggleDay(1)">周一</button>
+              <button type="button" class="day-btn" data-day="2" onclick="toggleDay(2)">周二</button>
+              <button type="button" class="day-btn" data-day="3" onclick="toggleDay(3)">周三</button>
+              <button type="button" class="day-btn" data-day="4" onclick="toggleDay(4)">周四</button>
+              <button type="button" class="day-btn" data-day="5" onclick="toggleDay(5)">周五</button>
+              <button type="button" class="day-btn" data-day="0" onclick="toggleDay(0)">周六</button>
+              <button type="button" class="day-btn" data-day="6" onclick="toggleDay(6)">周日</button>
+            </div>
+          </div>
+          <div class="dingtalk-toggle-row">
+            <div class="dingtalk-toggle-label">
+              <span class="dingtalk-toggle-title">自动生成</span>
+              <span class="dingtalk-toggle-desc">拉取 GitLab 记录 + AI 生成日报</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="dingtalkAutoGenerate" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="dingtalk-actions">
+            <button class="btn btn-secondary" id="btnDingtalkTest" onclick="testDingtalk()">发送测试</button>
+            <button class="btn btn-accent" id="btnDingtalkPush" onclick="pushDingtalk()">立即推送</button>
+          </div>
+          <div class="dingtalk-status" id="dingtalkStatus"></div>
+        </div>
+
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e1e5eb;">
+
         <div class="form-group">
           <label for="aiProvider">AI 提供商</label>
           <select id="aiProvider" onchange="selectAiProvider(this.value)">
